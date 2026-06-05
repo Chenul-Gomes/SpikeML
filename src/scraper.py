@@ -25,7 +25,8 @@ def scrape_match(match_url):
 
     player_stats = []
 
-    for table in tables[2:]:
+    for i, table in enumerate(tables[2:]):
+        team = 'team1' if i % 2 == 0 else 'team2'
         rows = table.select("tr")
 
         for row in rows:
@@ -49,6 +50,7 @@ def scrape_match(match_url):
 
             player_stats.append({
                 "match_url": match_url,
+                "team": team,
                 "name": name.get_text(strip=True),
                 "rating": rating.get_text(strip=True) if rating else None,
                 "acs": acs.get_text(strip=True) if acs else None,
