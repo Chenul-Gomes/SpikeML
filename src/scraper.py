@@ -83,21 +83,29 @@ def scrape_match_index(num_pages=NUM_PAGES):
         response = requests.get(url)
         time.sleep(SLEEP_TIME)
         soup = BeautifulSoup(response.text, "html.parser")
-        matches = soup.select("a.wf-module-item")
 
-        for match in matches:
-            teams = match.select(".match-item-vs-team-name .text-of")
-            scores = match.select(".match-item-vs-team-score")
-            tournament = match.select(".match-item-event .text-of")
-            match_url = match["href"]
+        current_date = None
+        elements = soup.select(".wf-label.mod-large, a.wf-module-item")
 
-            all_matches.append({
-                "team1": teams[0].get_text(strip=True) if len(teams) > 0 else None,
-                "team2": teams[1].get_text(strip=True) if len(teams) > 1 else None,
-                "score1": scores[0].get_text(strip=True) if len(scores) > 0 else None,
-                "score2": scores[1].get_text(strip=True) if len(scores) > 1 else None,
-                "tournament": tournament[0].get_text(strip=True) if len(tournament) > 0 else None,
-                "url": match_url
+        for element in elements:
+            if "wf-label" in element.get("class", []):
+                for tag in element.select("span"):
+                    tag.decompose()
+                current_date = element.get_text(strip=True)
+            else:
+                teams = element.select(".match-item-vs-team-name .text-of")
+                scores = element.select(".match-item-vs-team-score")
+                tournament = element.select(".match-item-event .text-of")
+                match_url = element["href"]
+
+                all_matches.append({
+                    "date": current_date,
+                    "team1": teams[0].get_text(strip=True) if len(teams) > 0 else None,
+                    "team2": teams[1].get_text(strip=True) if len(teams) > 1 else None,
+                    "score1": scores[0].get_text(strip=True) if len(scores) > 0 else None,
+                    "score2": scores[1].get_text(strip=True) if len(scores) > 1 else None,
+                    "tournament": tournament[0].get_text(strip=True) if len(tournament) > 0 else None,
+                    "url": match_url
             })      
     return all_matches
 

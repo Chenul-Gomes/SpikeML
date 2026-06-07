@@ -3,9 +3,10 @@ import os
 import pandas as pd
 
 from src.scraper import BASE_URL, scrape_all_player_stats, scrape_match_index
-from src.features import build_match_features
+from src.features import build_match_features, build_rolling_features
+from src.models import train_model
 
-RESCRAPE = True
+RESCRAPE = False
 
 if __name__ == "__main__":
 
@@ -22,4 +23,9 @@ if __name__ == "__main__":
         matches_df = pd.read_csv("data/raw/matches.csv")
         stats_df = pd.read_csv("data/raw/player_stats.csv")
 
-    build_match_features(matches_df, stats_df)
+    feature_df = build_rolling_features(matches_df, stats_df)
+
+    print(f"Rows with any NaN: {feature_df.isna().any(axis=1).sum()}")
+    print(f"Total rows: {len(feature_df)}")
+    
+    train_model(feature_df)
