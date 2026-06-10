@@ -26,7 +26,7 @@ def scrape_match(match_url):
     player_stats = []
 
     for i, table in enumerate(tables[2:]):
-        team = 'team1' if i % 2 == 0 else 'team2'
+        team = "team1" if i % 2 == 0 else "team2"
         rows = table.select("tr")
 
         for row in rows:
@@ -106,7 +106,7 @@ def scrape_match_index(num_pages=NUM_PAGES):
                     "score2": scores[1].get_text(strip=True) if len(scores) > 1 else None,
                     "tournament": tournament[0].get_text(strip=True) if len(tournament) > 0 else None,
                     "url": match_url
-            })      
+                })      
     return all_matches
 
 def scrape_all_player_stats(match_urls):
@@ -123,7 +123,7 @@ def scrape_all_player_stats(match_urls):
     all_player_stats = []
 
     for i, url in enumerate(match_urls):
-        print(f"Scraping match {i+1}/{len(match_urls)}: {url}")
+        print(f"Scraping match {i + 1}/{len(match_urls)}: {url}")
         player_stats = scrape_match(url)
         all_player_stats.extend(player_stats)
     

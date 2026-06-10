@@ -11,8 +11,8 @@ A machine learning project that scrapes Valorant Champions Tour (VCT) pro match 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Data Collection & Scraping | ✅ Complete |
-| 2 | Feature Engineering & Tabular ML | 🔄 In Progress |
-| 3 | NLP Sentiment Analysis | ⏳ Upcoming |
+| 2 | Feature Engineering & Tabular ML | ✅ Complete |
+| 3 | NLP Sentiment Analysis | 🔄 In Progress |
 | 4 | Analysis & Insights | ⏳ Upcoming |
 
 ---
