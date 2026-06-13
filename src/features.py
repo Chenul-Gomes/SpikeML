@@ -161,17 +161,27 @@ def build_rolling_features(matches_df, stats_df):
 
 def build_map_winrates(matches_df, stats_df):
     """
-    Build per-map win rate features for each team.
+    Build per-map win rate features for each team based on maps actually played.
+
+    Instead of including all map win rates, only includes win rates for the
+    specific maps played in each match (map1, map2, map3). This avoids giving
+    the model irrelevant map information and reduces noise.
 
     Args:
-        matches_df: DataFrame from matches.csv
-        stats_df: DataFrame from player_stats.csv
+        matches_df (pd.DataFrame): DataFrame from matches.csv
+        stats_df (pd.DataFrame): DataFrame from player_stats.csv
 
     Returns:
-        DataFrame with one row per match and map win rate columns
-        for both team1 and team2
+        pd.DataFrame: One row per match with team1 and team2 win rates
+                      for each map played (map1, map2, map3)
     """
-    merged_df = pd.merge(matches_df, stats_df, left_on="url", right_on="match_url", how="left")
+    merged_df = pd.merge(
+        matches_df[["url", "team1", "team2", "date", "score1", "score2"]],
+        stats_df,
+        left_on="url",
+        right_on="match_url",
+        how="left")
+    merged_df["date"] = pd.to_datetime(merged_df["date"], format="%a, %B %d, %Y")
 
     # resolve actual team name from relative labels
     merged_df["actual_team"] = merged_df.apply(
@@ -189,53 +199,81 @@ def build_map_winrates(matches_df, stats_df):
     )
 
     # one row per team per map per match
-    team_map_results = merged_df[["actual_team", "match_url", "map", "won"]].drop_duplicates()
-    
-    # calculate win rate per team per map
-    map_winrates = (
+    team_map_results = merged_df[["actual_team", "match_url", "map", "won", "date"]].drop_duplicates()
+
+    # sort by team and date so rolling goes forward in time
+    team_map_results = team_map_results.sort_values(["actual_team", "map", "date"])
+
+    # calculate cumulative win rate up to but not including current match
+    team_map_results["cumulative_wins"] = (
         team_map_results.groupby(["actual_team", "map"])["won"]
-        .agg(["sum", "count"])
-        .reset_index()
+        .transform(lambda x: x.shift(1).expanding().sum())
     )
-    map_winrates["winrate"] = map_winrates["sum"] / map_winrates["count"]
-    map_winrates = map_winrates.drop(columns=["sum", "count"])
-    
-    # pivot so each map is a column
-    map_winrates_pivot = map_winrates.pivot(
-        index="actual_team", 
-        columns="map", 
+    team_map_results["cumulative_games"] = (
+        team_map_results.groupby(["actual_team", "map"])["won"]
+        .transform(lambda x: x.shift(1).expanding().count())
+    )
+    # rolling win rate over last 5 appearances on each map (shifted to exclude current)
+    team_map_results["winrate"] = (
+        team_map_results.groupby(["actual_team", "map"])["won"]
+        .transform(lambda x: x.shift(1).rolling(window=5, min_periods=1).mean())
+    ).fillna(0.5)
+
+    # pivot so each map becomes a column per team per match
+    map_winrates_pivot = team_map_results.pivot_table(
+        index=["actual_team", "match_url"],
+        columns="map",
         values="winrate"
     ).reset_index()
     map_winrates_pivot.columns = [
-        f"winrate_{col}" if col != "actual_team" else col 
+        f"winrate_{col}" if col not in ["actual_team", "match_url"] else col
         for col in map_winrates_pivot.columns
     ]
-
-    # fill unknown map win rates with 0.5 (assume average)
     map_winrates_pivot = map_winrates_pivot.fillna(0.5)
 
-    # attach team1 and team2 map win rates to each match
-    matches_with_maps = matches_df[["url", "team1", "team2"]].copy()
+    # extract which maps were played in each match (up to 3)
+    maps_per_match = (
+        stats_df[["match_url", "map"]]
+        .drop_duplicates()
+        .groupby("match_url")["map"]
+        .apply(list)
+        .reset_index()
+    )
+    maps_per_match["map1"] = maps_per_match["map"].apply(lambda x: x[0] if len(x) > 0 else None)
+    maps_per_match["map2"] = maps_per_match["map"].apply(lambda x: x[1] if len(x) > 1 else None)
+    maps_per_match["map3"] = maps_per_match["map"].apply(lambda x: x[2] if len(x) > 2 else None)
+    maps_per_match = maps_per_match.drop(columns=["map"])
+    
+    def get_winrate(team, map_name, match_url):
+        """Look up a team's historical win rate on a specific map before this match."""
+        if map_name is None or pd.isna(map_name):
+            return 0.5
+        col = f"winrate_{map_name}"
+        if col not in map_winrates_pivot.columns:
+            return 0.5
+        row = map_winrates_pivot[
+            (map_winrates_pivot["actual_team"] == team) &
+            (map_winrates_pivot["match_url"] == match_url)
+            ]
+        if row.empty:
+            return 0.5
+        return row[col].values[0]
+    
+    # merge maps played per match with match metadata
+    matches_with_maps = matches_df[["url", "team1", "team2"]].merge(
+        maps_per_match, left_on="url", right_on="match_url", how="left"
+    ).drop(columns=["match_url"])
 
-    team1_maps = pd.merge(
-        matches_with_maps, map_winrates_pivot,
-        left_on="team1",
-        right_on="actual_team",
-        how="left"
-    ).drop(columns=["actual_team", "team1", "team2"])
-
-    team2_maps = pd.merge(
-        matches_with_maps,
-        map_winrates_pivot,
-        left_on="team2",
-        right_on="actual_team",
-        how="left"
-    ).drop(columns=["actual_team", "team1", "team2"])
-
-    winrate_cols = [col for col in map_winrates_pivot.columns if col.startswith("winrate_")]
-    team1_maps = team1_maps.rename(columns={col: f"team1_{col}" for col in winrate_cols})
-    team2_maps = team2_maps.rename(columns={col: f"team2_{col}" for col in winrate_cols})
-
-    map_features = pd.merge(team1_maps, team2_maps, on="url", how="inner")
+    # look up each team's win rate on each map played
+    for map_col in ["map1", "map2", "map3"]:
+        matches_with_maps[f"team1_winrate_{map_col}"] = matches_with_maps.apply(
+            lambda row: get_winrate(row["team1"], row[map_col], row["url"]), axis=1
+        )
+        matches_with_maps[f"team2_winrate_{map_col}"] = matches_with_maps.apply(
+            lambda row: get_winrate(row["team2"], row[map_col], row["url"]), axis=1
+        )
+    
+    # drop helper columns — keep only url and win rate features
+    map_features = matches_with_maps.drop(columns=["team1", "team2", "map1", "map2", "map3"])
     
     return map_features

@@ -18,7 +18,7 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
 
-def train_model(feature_df, show_shap=False, show_metrics=True):
+def train_model(feature_df, show_shap=False, show_metrics=False):
     """
     Train and evaluate multiple ML models on the feature DataFrame.
 
@@ -46,18 +46,18 @@ def train_model(feature_df, show_shap=False, show_metrics=True):
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         acc = accuracy_score(y_test, y_pred)
+        print(f"{name}: {acc:.2%}")
         if show_metrics:
-            print(f"{name}: {acc:.2%}")
             print(classification_report(
                 y_test, y_pred, target_names=["team2 wins", "team1 wins"]
             ))
 
     # ── Save Best Model ───────────────────────────────────────────────────────
-    # Logistic Regression performs best with map win rate features
-    best_model = models["Logistic Regression"]
+    # Random Forest performs best with map win rate features
+    best_model = models["Random Forest"]
     os.makedirs("models", exist_ok=True)
-    joblib.dump(best_model, "models/logistic_regression.pkl")
-    print("Model saved to models/logistic_regression.pkl")
+    joblib.dump(best_model, "models/random_forest.pkl")
+    print("Model saved to models/random_forest.pkl")
 
     # ── SHAP Explainability ───────────────────────────────────────────────────
     # XGBoost used for SHAP as it produces cleaner explanations than Random Forest
