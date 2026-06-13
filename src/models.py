@@ -1,3 +1,11 @@
+"""
+models.py — SpikeML Model Training & Evaluation
+=================================================
+Trains and evaluates multiple ML models on the feature matrix.
+Uses XGBoost for SHAP explainability and Logistic Regression
+as the best performing model for predictions.
+"""
+
 import os
 
 import joblib
@@ -10,21 +18,24 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
 
-def train_model(feature_df, show_shap=True):
+def train_model(feature_df, show_shap=False, show_metrics=True):
     """
     Train and evaluate multiple ML models on the feature DataFrame.
 
     Args:
         feature_df (pd.DataFrame): Feature matrix with target column 'winner'
         show_shap (bool): Whether to display the SHAP plot
+        show_metrics (bool): Whether to display evaluation metrics
 
     Returns:
         best_model: Trained Random Forest classifier
     """
+    # ── Train/Test Split ──────────────────────────────────────────────────────
     X = feature_df.drop(columns=["winner"])
     y = feature_df["winner"]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
+    # ── Model Comparison ──────────────────────────────────────────────────────
     models = {
         "Logistic Regression": LogisticRegression(max_iter=5000, random_state=42),
         "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
@@ -35,18 +46,22 @@ def train_model(feature_df, show_shap=True):
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         acc = accuracy_score(y_test, y_pred)
-        print(f"{name}: {acc:.2%}")
-        print(classification_report(y_test, y_pred, target_names=["team2 wins", "team1 wins"]))
+        if show_metrics:
+            print(f"{name}: {acc:.2%}")
+            print(classification_report(
+                y_test, y_pred, target_names=["team2 wins", "team1 wins"]
+            ))
 
-    best_model = models["Random Forest"]
-
+    # ── Save Best Model ───────────────────────────────────────────────────────
+    # Logistic Regression performs best with map win rate features
+    best_model = models["Logistic Regression"]
     os.makedirs("models", exist_ok=True)
-    joblib.dump(best_model, "models/random_forest.pkl")
-    print("Model saved to models/random_forest.pkl")
+    joblib.dump(best_model, "models/logistic_regression.pkl")
+    print("Model saved to models/logistic_regression.pkl")
 
-    xgb = XGBClassifier(n_estimators=100, random_state=42, eval_metric="logloss")
-    xgb.fit(X_train, y_train)
-
+    # ── SHAP Explainability ───────────────────────────────────────────────────
+    # XGBoost used for SHAP as it produces cleaner explanations than Random Forest
+    xgb = models["XGBoost"] # reuse already-trained model from comparison loop
     explainer = shap.TreeExplainer(xgb)
     shap_vals = explainer.shap_values(X_test)
 

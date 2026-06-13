@@ -2,7 +2,7 @@
 
 A machine learning project that scrapes Valorant Champions Tour (VCT) pro match data and combines tabular ML with NLP sentiment analysis to predict match outcomes and explore whether community sentiment correlates with performance.
 
-> 🚧 **Work in progress** — Phase 2 currently in development.
+> 🚧 **Work in progress** — Phase 3 currently in development.
 
 ---
 

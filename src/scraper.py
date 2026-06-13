@@ -1,7 +1,15 @@
+"""
+scraper.py — SpikeML Data Collection
+=====================================
+Scrapes pro match data from VLR.gg including:
+  - Match metadata (teams, scores, dates, tournaments)
+  - Per-map player stats (ACS, kills, deaths, KAST, ADR, etc.)
+"""
+
 import time
+import re
 
 import requests
-
 from bs4 import BeautifulSoup
 
 BASE_URL = "https://www.vlr.gg"
@@ -21,13 +29,25 @@ def scrape_match(match_url):
     response = requests.get(match_url)
     time.sleep(SLEEP_TIME)
     soup = BeautifulSoup(response.text, "html.parser")
+
+    # grab all stats tables — first two are "All Maps" summaries, skip them
     tables = soup.select(".wf-table-inset.mod-overview")
+
+    # extract map names from the nav tabs, stripping leading numbers
+    map_nav = soup.select(".vm-stats-gamesnav-item")
+    map_names = [
+        re.sub(r"^\d+", "", m.get_text(strip=True)).strip()
+        for m in map_nav
+        if "all" not in m.get_text(strip=True).lower()
+    ]
 
     player_stats = []
 
     for i, table in enumerate(tables[2:]):
+        # tables come in pairs per map — even index = team1, odd = team2
         team = "team1" if i % 2 == 0 else "team2"
         rows = table.select("tr")
+        map_name = map_names[i // 2] if i // 2 < len(map_names) else None
 
         for row in rows:
             name = row.select_one(".mod-player .text-of")
@@ -35,6 +55,8 @@ def scrape_match(match_url):
             if not name:
                 continue
             
+            # stat columns are ordered: rating, acs, kills, deaths,
+            # assists, kd_diff, kast, adr, hs, fk, fd
             stats = row.select("td.mod-stat")
             rating = stats[0].select_one(".side.mod-side.mod-both")
             acs = stats[1].select_one(".side.mod-side.mod-both")
@@ -62,7 +84,8 @@ def scrape_match(match_url):
                 "adr": adr.get_text(strip=True) if adr else None,
                 "hs": hs.get_text(strip=True) if hs else None,
                 "fk": fk.get_text(strip=True) if fk else None,
-                "fd": fd.get_text(strip=True) if fd else None
+                "fd": fd.get_text(strip=True) if fd else None,
+                "map": map_name
             })
     return player_stats
 
@@ -84,11 +107,13 @@ def scrape_match_index(num_pages=NUM_PAGES):
         time.sleep(SLEEP_TIME)
         soup = BeautifulSoup(response.text, "html.parser")
 
+        # select both date headers and match items in page order
         current_date = None
         elements = soup.select(".wf-label.mod-large, a.wf-module-item")
 
         for element in elements:
             if "wf-label" in element.get("class", []):
+                # strip "Today"/"Yesterday" span tags before extracting date
                 for tag in element.select("span"):
                     tag.decompose()
                 current_date = element.get_text(strip=True)
@@ -119,7 +144,6 @@ def scrape_all_player_stats(match_urls):
     Returns:
         all_player_stats (list): List of player stats dictionaries for all matches
     """
-    
     all_player_stats = []
 
     for i, url in enumerate(match_urls):
