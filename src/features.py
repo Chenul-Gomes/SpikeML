@@ -277,3 +277,104 @@ def build_map_winrates(matches_df, stats_df):
     map_features = matches_with_maps.drop(columns=["team1", "team2", "map1", "map2", "map3"])
     
     return map_features
+
+def build_agent_features(matches_df, stats_df):
+    """
+    Build rolling agent composition features for each team.
+
+    Maps agents to roles (Duelist, Initiator, Controller, Sentinel) and
+    computes rolling average role counts over the last 5 matches per team,
+    shifted to avoid data leakage.
+
+    Args:
+        matches_df (pd.DataFrame): DataFrame from matches.csv
+        stats_df (pd.DataFrame): DataFrame from player_stats.csv
+
+    Returns:
+        pd.DataFrame: One row per match with team1 and team2 role composition features
+    """
+    AGENT_ROLES = {
+        # Duelists
+        "Jett": "duelist", "Reyna": "duelist", "Phoenix": "duelist",
+        "Neon": "duelist", "Yoru": "duelist", "Iso": "duelist",
+        "Waylay": "duelist",
+        # Initiators
+        "Sova": "initiator", "Breach": "initiator", "Skye": "initiator",
+        "KAY/O": "initiator", "Fade": "initiator", "Gekko": "initiator",
+        "Tejo": "initiator",
+        # Controllers
+        "Brimstone": "controller", "Omen": "controller", "Viper": "controller",
+        "Astra": "controller", "Harbor": "controller", "Clove": "controller",
+        # Sentinels
+        "Killjoy": "sentinel", "Cypher": "sentinel", "Sage": "sentinel",
+        "Chamber": "sentinel", "Deadlock": "sentinel", "Vyse": "sentinel",
+    }
+    ROLES = ["duelist", "initiator", "controller", "sentinel"]
+
+    merged_df = pd.merge(
+        matches_df[["url", "team1", "team2", "date", "score1", "score2"]],
+        stats_df[["match_url", "team", "name", "map", "agent"]],
+        left_on="url",
+        right_on="match_url",
+        how="left"
+    )
+    merged_df["date"] = pd.to_datetime(merged_df["date"], format="%a, %B %d, %Y")
+
+    # resolve actual team name from relative labels
+    merged_df["actual_team"] = merged_df.apply(
+        lambda row: row["team1"] if row["team"] == "team1" else row["team2"],
+        axis=1
+    )
+
+    # map agent to role, default to None if unknown
+    merged_df["role"] = merged_df["agent"].map(AGENT_ROLES)
+
+    # count roles per team per match (across all maps, averaged)
+    for role in ROLES:
+        merged_df[role] = (merged_df["role"] == role).astype(int)
+
+    # aggregate to one row per team per match — mean role count across maps
+    role_per_match = (
+        merged_df.groupby(["actual_team", "match_url", "date"])[ROLES]
+        .mean()
+        .reset_index()
+    )
+    role_per_match = role_per_match.sort_values(["actual_team", "date"])
+
+    # rolling average of role composition over last 5 matches, shifted to avoid leakage
+    rolling_roles = (
+        role_per_match.groupby("actual_team")[ROLES]
+        .transform(lambda x: x.shift(1).rolling(window=5, min_periods=1).mean())
+    )
+    rolling_roles["actual_team"] = role_per_match["actual_team"].values
+    rolling_roles["match_url"] = role_per_match["match_url"].values
+    rolling_roles = rolling_roles.rename(
+        columns={role: f"rolling_{role}" for role in ROLES}
+    )
+
+    rolling_cols = [f"rolling_{role}" for role in ROLES]
+
+    # merge back with match metadata to split into team1/team2
+    final_df = pd.merge(
+        rolling_roles,
+        matches_df[["url", "team1", "team2"]],
+        left_on="match_url",
+        right_on="url",
+        how="left"
+    )
+
+    team1_df = final_df[final_df["actual_team"] == final_df["team1"]].copy()
+    team2_df = final_df[final_df["actual_team"] == final_df["team2"]].copy()
+
+    team1_df = team1_df.rename(columns={col: f"team1_{col}" for col in rolling_cols})
+    team2_df = team2_df.rename(columns={col: f"team2_{col}" for col in rolling_cols})
+
+    # pivot to one row per match with both teams' features side by side
+    agent_features = pd.merge(
+        team1_df[["match_url"] + [f"team1_{col}" for col in rolling_cols]],
+        team2_df[["match_url"] + [f"team2_{col}" for col in rolling_cols]],
+        on="match_url",
+        how="inner"
+    )
+
+    return agent_features

@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 
 BASE_URL = "https://www.vlr.gg"
 SLEEP_TIME = 1
-NUM_PAGES = 5
+NUM_PAGES = 50
 
 def scrape_match(match_url):
     """
@@ -54,6 +54,9 @@ def scrape_match(match_url):
 
             if not name:
                 continue
+
+            agent_img = row.select_one("td.mod-agents img")
+            agent = agent_img["title"].strip() if agent_img else None
             
             # stat columns are ordered: rating, acs, kills, deaths,
             # assists, kd_diff, kast, adr, hs, fk, fd
@@ -74,6 +77,7 @@ def scrape_match(match_url):
                 "match_url": match_url,
                 "team": team,
                 "name": name.get_text(strip=True),
+                "agent": agent,
                 "rating": rating.get_text(strip=True) if rating else None,
                 "acs": acs.get_text(strip=True) if acs else None,
                 "kills": kills.get_text(strip=True) if kills else None,

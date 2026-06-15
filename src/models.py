@@ -8,6 +8,7 @@ as the best performing model for predictions.
 
 import os
 
+import pandas as pd
 import joblib
 import shap
 import matplotlib.pyplot as plt
@@ -54,10 +55,11 @@ def train_model(feature_df, show_shap=False, show_metrics=False):
 
     # ── Save Best Model ───────────────────────────────────────────────────────
     # Random Forest performs best with map win rate features
-    best_model = models["Random Forest"]
+    best_model = models["Logistic Regression"]
     os.makedirs("models", exist_ok=True)
-    joblib.dump(best_model, "models/random_forest.pkl")
-    print("Model saved to models/random_forest.pkl")
+    joblib.dump(best_model, "models/logistic_regression.pkl")
+    joblib.dump(list(X.columns), "models/feature_cols.pkl")
+    print("Model saved to models/logistic_regression.pkl")
 
     # ── SHAP Explainability ───────────────────────────────────────────────────
     # XGBoost used for SHAP as it produces cleaner explanations than Random Forest
@@ -75,3 +77,45 @@ def train_model(feature_df, show_shap=False, show_metrics=False):
     plt.close("all")
 
     return best_model
+
+def predict_match(team1, team2):
+    """
+    Predict win probability for a hypothetical match between two teams.
+
+    Args:
+        team1 (str): Name of team 1
+        team2 (str): Name of team 2
+        matches_df (pd.DataFrame): Full match history
+        stats_df (pd.DataFrame): Full player stats history
+
+    Returns:
+        float: Probability that team1 wins (0 to 1)
+    """
+    model = joblib.load("models/logistic_regression.pkl")
+    feature_cols = joblib.load("models/feature_cols.pkl")
+    final_df = pd.read_csv("data/processed/final_features.csv")  # need to save this in main.py
+
+    # grab most recent row where each team appeared
+    team1_matches = final_df[(final_df["team1"] == team1) | (final_df["team2"] == team1)]
+    team2_matches = final_df[(final_df["team1"] == team2) | (final_df["team2"] == team2)]
+
+    if team1_matches.empty or team2_matches.empty:
+        return None
+
+    team1_row = team1_matches.iloc[-1]
+    team2_row = team2_matches.iloc[-1]
+
+    # build input using team1's features as team1 and team2's features as team2
+    input_row = {}
+    for col in feature_cols:
+        if col.startswith("team1_"):
+            stat = col.replace("team1_", "")
+            input_row[col] = team1_row[f"team1_{stat}"] if f"team1_{stat}" in team1_row.index else 0.5
+        elif col.startswith("team2_"):
+            stat = col.replace("team2_", "")
+            input_row[col] = team2_row[f"team2_{stat}"] if f"team2_{stat}" in team2_row.index else 0.5
+
+    input_df = pd.DataFrame([input_row])[feature_cols]
+    input_df = input_df.fillna(0.5)
+    prob = model.predict_proba(input_df)[0][1]
+    return prob
